@@ -1,0 +1,110 @@
+services:
+  # ==========================================================================
+  # RAG API - Main application
+  # ==========================================================================
+  rag-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: perfect-rag-api
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      - SURREALDB_URL=ws://surrealdb:8529
+      - QDRANT_URL=http://qdrant:6333
+      - OXIGRAPH_URL=http://oxigraph:7878
+    env_file:
+      - .env
+    volumes:
+      - ./data/uploads:/app/uploads
+      - ./src:/app/src:ro  # Mount source for development
+    depends_on:
+      surrealdb:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      oxigraph:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ==========================================================================
+  # SurrealDB - Primary database + Graph
+  # ==========================================================================
+  surrealdb:
+    image: surrealdb/surrealdb:v2
+    container_name: perfect-rag-surrealdb
+    command: start --log info --user root --pass root --bind 0.0.0.0:8000 memory
+    ports:
+      - "8529:8000"
+    volumes:
+      - ./config/surrealdb:/config:ro
+    restart: unless-stopped
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ==========================================================================
+  # Qdrant - Vector search
+  # Uses different ports to avoid conflicts with existing Qdrant instances
+  # ==========================================================================
+  qdrant:
+    image: qdrant/qdrant:v1.12.1
+    container_name: perfect-rag-qdrant
+    ports:
+      - "6343:6333"  # Map to 6343 externally to avoid conflict
+      - "6344:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__LOG_LEVEL=INFO
+    restart: unless-stopped
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ==========================================================================
+  # Oxigraph - RDF Triple Store / SPARQL
+  # ==========================================================================
+  oxigraph:
+    image: oxigraph/oxigraph:latest
+    container_name: perfect-rag-oxigraph
+    command: serve --location /data --bind 0.0.0.0:7878
+    ports:
+      - "7878:7878"
+    volumes:
+      - oxigraph_data:/data
+      - ./config/oxigraph:/config:ro
+    restart: unless-stopped
+    networks:
+      - rag-network
+
+networks:
+  rag-network:
+    driver: bridge
+
+volumes:
+  surrealdb_data:
+    driver: local
+  qdrant_data:
+    driver: local
+  oxigraph_data:
+    driver: local

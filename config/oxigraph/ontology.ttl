@@ -1,0 +1,260 @@
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix schema: <http://schema.org/> .
+@prefix rag: <http://perfect-rag.local/ontology#> .
+
+# =============================================================================
+# Ontology metadata
+# =============================================================================
+<http://perfect-rag.local/ontology> a owl:Ontology ;
+    rdfs:label "Perfect RAG Ontology"@en ;
+    rdfs:comment "Ontology for the Perfect RAG knowledge graph"@en ;
+    owl:versionInfo "1.0.0" .
+
+# =============================================================================
+# Classes
+# =============================================================================
+
+rag:Entity a rdfs:Class ;
+    rdfs:label "Entity"@en ;
+    rdfs:comment "Base class for all entities in the knowledge graph"@en .
+
+rag:Document a rdfs:Class ;
+    rdfs:label "Document"@en ;
+    rdfs:comment "A source document that has been ingested"@en .
+
+rag:Chunk a rdfs:Class ;
+    rdfs:label "Chunk"@en ;
+    rdfs:comment "A text chunk extracted from a document"@en .
+
+# Entity types
+rag:Person a rdfs:Class ;
+    rdfs:subClassOf rag:Entity ;
+    rdfs:label "Person"@en .
+
+rag:Organization a rdfs:Class ;
+    rdfs:subClassOf rag:Entity ;
+    rdfs:label "Organization"@en .
+
+rag:Location a rdfs:Class ;
+    rdfs:subClassOf rag:Entity ;
+    rdfs:label "Location"@en .
+
+rag:Concept a rdfs:Class ;
+    rdfs:subClassOf rag:Entity ;
+    rdfs:label "Concept"@en .
+
+rag:Event a rdfs:Class ;
+    rdfs:subClassOf rag:Entity ;
+    rdfs:label "Event"@en .
+
+rag:Product a rdfs:Class ;
+    rdfs:subClassOf rag:Entity ;
+    rdfs:label "Product"@en .
+
+# Medical types
+rag:Disease a rdfs:Class ;
+    rdfs:subClassOf rag:Entity ;
+    rdfs:label "Disease"@en .
+
+rag:Symptom a rdfs:Class ;
+    rdfs:subClassOf rag:Entity ;
+    rdfs:label "Symptom"@en .
+
+rag:Treatment a rdfs:Class ;
+    rdfs:subClassOf rag:Entity ;
+    rdfs:label "Treatment"@en .
+
+rag:Drug a rdfs:Class ;
+    rdfs:subClassOf rag:Entity ;
+    rdfs:label "Drug"@en .
+
+# Technical types
+rag:Technology a rdfs:Class ;
+    rdfs:subClassOf rag:Entity ;
+    rdfs:label "Technology"@en .
+
+rag:API a rdfs:Class ;
+    rdfs:subClassOf rag:Entity ;
+    rdfs:label "API"@en .
+
+# =============================================================================
+# Object Properties (Relations between entities)
+# =============================================================================
+
+rag:relatedTo a rdf:Property ;
+    rdfs:label "related to"@en ;
+    rdfs:domain rag:Entity ;
+    rdfs:range rag:Entity .
+
+rag:mentionedIn a rdf:Property ;
+    rdfs:label "mentioned in"@en ;
+    rdfs:domain rag:Entity ;
+    rdfs:range rag:Chunk .
+
+rag:partOf a rdf:Property ;
+    rdfs:label "part of"@en ;
+    rdfs:domain rag:Entity ;
+    rdfs:range rag:Entity .
+
+rag:hasPart a rdf:Property ;
+    rdfs:label "has part"@en ;
+    owl:inverseOf rag:partOf ;
+    rdfs:domain rag:Entity ;
+    rdfs:range rag:Entity .
+
+rag:sameAs a rdf:Property ;
+    rdfs:label "same as"@en ;
+    rdfs:subPropertyOf owl:sameAs ;
+    rdfs:domain rag:Entity ;
+    rdfs:range rag:Entity .
+
+# People & Organizations
+rag:worksAt a rdf:Property ;
+    rdfs:label "works at"@en ;
+    rdfs:domain rag:Person ;
+    rdfs:range rag:Organization .
+
+rag:founded a rdf:Property ;
+    rdfs:label "founded"@en ;
+    rdfs:domain rag:Person ;
+    rdfs:range rag:Organization .
+
+rag:memberOf a rdf:Property ;
+    rdfs:label "member of"@en ;
+    rdfs:domain rag:Entity ;
+    rdfs:range rag:Organization .
+
+rag:manages a rdf:Property ;
+    rdfs:label "manages"@en ;
+    rdfs:domain rag:Person ;
+    rdfs:range rag:Entity .
+
+rag:knows a rdf:Property ;
+    rdfs:label "knows"@en ;
+    rdfs:domain rag:Person ;
+    rdfs:range rag:Person .
+
+# Location
+rag:locatedIn a rdf:Property ;
+    rdfs:label "located in"@en ;
+    rdfs:domain rag:Entity ;
+    rdfs:range rag:Location .
+
+rag:headquarteredIn a rdf:Property ;
+    rdfs:label "headquartered in"@en ;
+    rdfs:subPropertyOf rag:locatedIn ;
+    rdfs:domain rag:Organization ;
+    rdfs:range rag:Location .
+
+# Medical
+rag:treats a rdf:Property ;
+    rdfs:label "treats"@en ;
+    rdfs:domain rag:Treatment ;
+    rdfs:range rag:Disease .
+
+rag:causes a rdf:Property ;
+    rdfs:label "causes"@en ;
+    rdfs:domain rag:Entity ;
+    rdfs:range rag:Entity .
+
+rag:symptomOf a rdf:Property ;
+    rdfs:label "symptom of"@en ;
+    rdfs:domain rag:Symptom ;
+    rdfs:range rag:Disease .
+
+rag:interactsWith a rdf:Property ;
+    rdfs:label "interacts with"@en ;
+    rdfs:domain rag:Drug ;
+    rdfs:range rag:Drug .
+
+# Technical
+rag:dependsOn a rdf:Property ;
+    rdfs:label "depends on"@en ;
+    rdfs:domain rag:Technology ;
+    rdfs:range rag:Technology .
+
+rag:implements a rdf:Property ;
+    rdfs:label "implements"@en ;
+    rdfs:domain rag:Technology ;
+    rdfs:range rag:Concept .
+
+rag:uses a rdf:Property ;
+    rdfs:label "uses"@en ;
+    rdfs:domain rag:Entity ;
+    rdfs:range rag:Entity .
+
+# Document relations
+rag:chunkOf a rdf:Property ;
+    rdfs:label "chunk of"@en ;
+    rdfs:domain rag:Chunk ;
+    rdfs:range rag:Document .
+
+rag:hasChunk a rdf:Property ;
+    rdfs:label "has chunk"@en ;
+    owl:inverseOf rag:chunkOf ;
+    rdfs:domain rag:Document ;
+    rdfs:range rag:Chunk .
+
+rag:evidenceFor a rdf:Property ;
+    rdfs:label "evidence for"@en ;
+    rdfs:domain rag:Chunk ;
+    rdfs:range rag:Entity .
+
+# =============================================================================
+# Datatype Properties
+# =============================================================================
+
+rag:name a rdf:Property ;
+    rdfs:label "name"@en ;
+    rdfs:domain rag:Entity ;
+    rdfs:range xsd:string .
+
+rag:normalizedName a rdf:Property ;
+    rdfs:label "normalized name"@en ;
+    rdfs:domain rag:Entity ;
+    rdfs:range xsd:string .
+
+rag:entityType a rdf:Property ;
+    rdfs:label "entity type"@en ;
+    rdfs:domain rag:Entity ;
+    rdfs:range xsd:string .
+
+rag:confidence a rdf:Property ;
+    rdfs:label "confidence"@en ;
+    rdfs:range xsd:float .
+
+rag:content a rdf:Property ;
+    rdfs:label "content"@en ;
+    rdfs:domain rag:Chunk ;
+    rdfs:range xsd:string .
+
+rag:offsetStart a rdf:Property ;
+    rdfs:label "offset start"@en ;
+    rdfs:domain rag:Chunk ;
+    rdfs:range xsd:integer .
+
+rag:offsetEnd a rdf:Property ;
+    rdfs:label "offset end"@en ;
+    rdfs:domain rag:Chunk ;
+    rdfs:range xsd:integer .
+
+rag:source a rdf:Property ;
+    rdfs:label "source"@en ;
+    rdfs:domain rag:Document ;
+    rdfs:range xsd:string .
+
+rag:format a rdf:Property ;
+    rdfs:label "format"@en ;
+    rdfs:domain rag:Document ;
+    rdfs:range xsd:string .
+
+rag:createdAt a rdf:Property ;
+    rdfs:label "created at"@en ;
+    rdfs:range xsd:dateTime .
+
+rag:updatedAt a rdf:Property ;
+    rdfs:label "updated at"@en ;
+    rdfs:range xsd:dateTime .

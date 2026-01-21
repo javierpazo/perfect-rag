@@ -1,0 +1,92 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data files (large)
+data/*.json
+data/*.parquet
+*.pkl
+*.pickle
+
+# Model cache
+models/
+*.onnx
+*.bin
+
+# Benchmark results (keep scripts, not data)
+benchmarks/results_*.json
+benchmarks/quality_*.json
+
+# Private/internal documentation
+COMPARATIVA*.md
+RAGREMOTO.md
+STATE_OF_THE_ART_RAG_2025.md
+IMPLEMENTATION_STATUS.md
+INSTRUCCIONES_SSH.md
+RESUMEN_EVALUACIONES.md
+TODO.md
+evaluacion_*.md
+
+# Migration data (contains private medical data)
+migration/
+
+# Benchmark scripts and data (internal use)
+benchmarks/
+
+# Evaluation files
+*.csv
+resultados*.csv
+
+# Jupyter
+.ipynb_checkpoints/
