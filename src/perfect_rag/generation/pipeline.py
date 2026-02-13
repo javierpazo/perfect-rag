@@ -1,4 +1,12 @@
-"""Generation pipeline orchestrator."""
+"""Generation pipeline orchestrator.
+
+Full pipeline with:
+1. Evidence extraction from chunks (evidence-first)
+2. Prompt construction with verified evidence
+3. LLM generation (streaming or non-streaming)
+4. Citation extraction and verification
+5. Response formatting
+"""
 
 from typing import Any, AsyncIterator
 
@@ -18,10 +26,11 @@ class GenerationPipeline:
     """Complete generation pipeline with RAG augmentation.
 
     Pipeline steps:
-    1. Prompt construction with retrieved context
-    2. LLM generation (streaming or non-streaming)
-    3. Citation extraction and verification
-    4. Response formatting
+    1. Evidence extraction (evidence-first, reduces hallucinations)
+    2. Prompt construction with retrieved context
+    3. LLM generation (streaming or non-streaming)
+    4. Citation extraction and verification
+    5. Response formatting
     """
 
     def __init__(
@@ -33,6 +42,10 @@ class GenerationPipeline:
         self.settings = settings or get_settings()
         self.prompt_builder = PromptBuilder(settings)
         self.citation_extractor = CitationExtractor()
+
+        # Evidence-first components (lazy loaded)
+        self._evidence_extractor = None
+        self._evidence_generator = None
 
     async def generate(
         self,
@@ -46,6 +59,7 @@ class GenerationPipeline:
         include_citations: bool = True,
         verify_citations: bool = False,
         stream: bool = False,
+        use_evidence_first: bool | None = None,
     ) -> GenerationResult | AsyncIterator[str]:
         """Generate response with RAG augmentation.
 
@@ -60,10 +74,170 @@ class GenerationPipeline:
             include_citations: Whether to extract citations
             verify_citations: Whether to verify citation accuracy
             stream: Whether to stream response
+            use_evidence_first: Whether to use evidence-first generation (default from settings)
 
         Returns:
             GenerationResult or AsyncIterator of chunks if streaming
         """
+        # Determine if evidence-first should be used
+        if use_evidence_first is None:
+            use_evidence_first = self.settings.evidence_first_enabled
+
+        # Use evidence-first pipeline if enabled and we have chunks
+        if use_evidence_first and retrieval_result and retrieval_result.chunks:
+            return await self._generate_evidence_first(
+                messages=messages,
+                retrieval_result=retrieval_result,
+                model=model,
+                provider=provider,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                include_citations=include_citations,
+            )
+
+        # Standard generation
+        return await self._generate_standard(
+            messages=messages,
+            retrieval_result=retrieval_result,
+            model=model,
+            provider=provider,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            prompt_mode=prompt_mode,
+            include_citations=include_citations,
+            verify_citations=verify_citations,
+            stream=stream,
+        )
+
+    async def _generate_evidence_first(
+        self,
+        messages: list[dict[str, str]],
+        retrieval_result: RetrievalResult,
+        model: str | None,
+        provider: str | None,
+        temperature: float,
+        max_tokens: int,
+        include_citations: bool,
+    ) -> GenerationResult:
+        """Two-step evidence-first generation (reduces hallucinations)."""
+        # Lazy load evidence components
+        await self._ensure_evidence_components()
+
+        # Extract query from messages
+        query = ""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                query = msg.get("content", "")
+                break
+
+        # Convert chunks to format expected by evidence extractor
+        chunks_for_evidence = [
+            {
+                "id": c.chunk_id,
+                "doc_title": c.doc_title,
+                "content": c.content,
+                "score": c.score,
+            }
+            for c in retrieval_result.chunks
+        ]
+
+        # Step 1: Extract evidence from chunks
+        if self._evidence_extractor:
+            evidence_set = await self._evidence_extractor.extract_evidence(
+                query=query,
+                chunks=chunks_for_evidence,
+                max_evidences=self.settings.evidence_first_max_evidences,
+            )
+
+            # Check coverage
+            if evidence_set.coverage < self.settings.evidence_first_min_coverage:
+                logger.warning(
+                    "Low evidence coverage, may have gaps",
+                    coverage=evidence_set.coverage,
+                )
+        else:
+            # Fallback: use chunks directly
+            from perfect_rag.generation.evidence_first import EvidenceSet, ExtractedEvidence
+
+            evidence_set = EvidenceSet(
+                evidences=[
+                    ExtractedEvidence(
+                        chunk_id=c.chunk_id,
+                        doc_title=c.doc_title,
+                        evidence_text=c.content[:500],
+                        relevance_score=c.score,
+                    )
+                    for c in retrieval_result.chunks[:5]
+                ],
+                contradictions=[],
+                gaps=[],
+                coverage=0.7,
+            )
+
+        # Step 2: Generate answer from evidence
+        if self._evidence_generator:
+            result = await self._evidence_generator.generate(
+                query=query,
+                chunks=chunks_for_evidence,
+                max_evidences=self.settings.evidence_first_max_evidences,
+            )
+
+            response_text = result.answer
+            citations = result.citations
+            evidence_confidence = result.confidence
+        else:
+            # Fallback: standard generation with evidence prompt
+            evidence_context = "\n\n".join(
+                f"[E{i+1}] {e.evidence_text}"
+                for i, e in enumerate(evidence_set.evidences)
+            )
+
+            enhanced_messages = messages.copy()
+            if evidence_context:
+                system_msg = {
+                    "role": "system",
+                    "content": f"Use ONLY the following verified evidence to answer. Cite sources as [E1], [E2], etc.\n\n{evidence_context}",
+                }
+                enhanced_messages.insert(0, system_msg)
+
+            response_text = await self.llm.generate(
+                messages=enhanced_messages,
+                model=model,
+                provider=provider,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=False,
+            )
+            citations = []
+            evidence_confidence = retrieval_result.confidence
+
+        return GenerationResult(
+            response=response_text,
+            citations=citations,
+            confidence=evidence_confidence,
+            model=model or self.settings.default_llm_model,
+            retrieval_metadata={
+                **retrieval_result.metadata,
+                "evidence_first": True,
+                "evidence_count": len(evidence_set.evidences),
+                "evidence_coverage": evidence_set.coverage,
+            },
+        )
+
+    async def _generate_standard(
+        self,
+        messages: list[dict[str, str]],
+        retrieval_result: RetrievalResult | None,
+        model: str | None,
+        provider: str | None,
+        temperature: float,
+        max_tokens: int,
+        prompt_mode: str,
+        include_citations: bool,
+        verify_citations: bool,
+        stream: bool,
+    ) -> GenerationResult | AsyncIterator[str]:
+        """Standard generation pipeline."""
         # Build augmented prompt if we have retrieval results
         if retrieval_result and retrieval_result.chunks:
             augmented_messages = self.prompt_builder.build_rag_prompt(
@@ -102,6 +276,58 @@ class GenerationPipeline:
                 include_citations=include_citations,
                 verify_citations=verify_citations,
             )
+
+    async def _ensure_evidence_components(self) -> None:
+        """Lazy load evidence-first components."""
+        if self._evidence_extractor is None:
+            try:
+                from perfect_rag.generation.evidence_first import (
+                    EvidenceBasedGenerator,
+                    EvidenceExtractor,
+                )
+
+                self._evidence_extractor = EvidenceExtractor(self.llm)
+                self._evidence_generator = EvidenceBasedGenerator(self.llm)
+                logger.info("Evidence-first components loaded")
+            except ImportError as e:
+                logger.warning("Evidence-first not available", error=str(e))
+            except Exception as e:
+                logger.error("Failed to load evidence components", error=str(e))
+
+    async def _stream_generate(
+        self,
+        messages: list[dict[str, str]],
+        retrieval_result: RetrievalResult | None,
+        model: str | None,
+        provider: str | None,
+        temperature: float,
+        max_tokens: int,
+        include_citations: bool,
+    ) -> AsyncIterator[str]:
+        """Streaming generation.
+
+        Yields text chunks. Citations are extracted at the end.
+        """
+        # Get streaming response
+        stream = await self.llm.generate(
+            messages=messages,
+            model=model,
+            provider=provider,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True,
+        )
+
+        # Collect full response for citation extraction
+        full_response = []
+
+        async for chunk in stream:
+            full_response.append(chunk)
+            yield chunk
+
+        # After streaming complete, we could process citations
+        # but for SSE, citations are typically sent in final message
+        # which is handled at the API level
 
     async def _generate(
         self,
@@ -156,41 +382,6 @@ class GenerationPipeline:
             retrieval_metadata=retrieval_result.metadata if retrieval_result else None,
             citation_verification=citation_verification,
         )
-
-    async def _stream_generate(
-        self,
-        messages: list[dict[str, str]],
-        retrieval_result: RetrievalResult | None,
-        model: str | None,
-        provider: str | None,
-        temperature: float,
-        max_tokens: int,
-        include_citations: bool,
-    ) -> AsyncIterator[str]:
-        """Streaming generation.
-
-        Yields text chunks. Citations are extracted at the end.
-        """
-        # Get streaming response
-        stream = await self.llm.generate(
-            messages=messages,
-            model=model,
-            provider=provider,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            stream=True,
-        )
-
-        # Collect full response for citation extraction
-        full_response = []
-
-        async for chunk in stream:
-            full_response.append(chunk)
-            yield chunk
-
-        # After streaming complete, we could process citations
-        # but for SSE, citations are typically sent in final message
-        # which is handled at the API level
 
     async def generate_with_verification(
         self,

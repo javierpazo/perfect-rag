@@ -395,6 +395,144 @@ class Settings(BaseSettings):
         description="Maximum tokens from cached context",
     )
 
+    # =========================================================================
+    # BM25 + Sparse Settings
+    # =========================================================================
+    bm25_enabled: bool = Field(
+        default=True,
+        description="Enable BM25 sparse retrieval with phrase/proximity queries",
+    )
+    bm25_k1: float = Field(
+        default=1.5,
+        ge=0.0,
+        le=3.0,
+        description="BM25 k1 parameter (term frequency saturation)",
+    )
+    bm25_b: float = Field(
+        default=0.75,
+        ge=0.0,
+        le=1.0,
+        description="BM25 b parameter (document length normalization)",
+    )
+    bm25_phrase_boost: float = Field(
+        default=1.5,
+        ge=1.0,
+        le=3.0,
+        description="Boost factor for phrase matches",
+    )
+    bm25_proximity_window: int = Field(
+        default=10,
+        ge=3,
+        le=50,
+        description="Window size for proximity scoring",
+    )
+
+    # =========================================================================
+    # RAG-Fusion + Query Routing Settings
+    # =========================================================================
+    rag_fusion_enabled: bool = Field(
+        default=True,
+        description="Enable multi-query RAG-Fusion with intent routing",
+    )
+    rag_fusion_num_variations: int = Field(
+        default=3,
+        ge=1,
+        le=5,
+        description="Number of query variations to generate",
+    )
+    rag_fusion_rrf_k: int = Field(
+        default=60,
+        ge=1,
+        le=100,
+        description="RRF constant for fusion (default 60)",
+    )
+
+    # =========================================================================
+    # MMR Diversification Settings
+    # =========================================================================
+    mmr_enabled: bool = Field(
+        default=True,
+        description="Enable MMR diversification for context variety",
+    )
+    mmr_lambda: float = Field(
+        default=0.7,
+        ge=0.0,
+        le=1.0,
+        description="MMR lambda: relevance vs diversity trade-off (higher = more relevance)",
+    )
+    mmr_top_k: int = Field(
+        default=10,
+        ge=3,
+        le=30,
+        description="Number of diverse chunks to select",
+    )
+
+    # =========================================================================
+    # Confidence + Fallback Settings
+    # =========================================================================
+    confidence_fallback_enabled: bool = Field(
+        default=True,
+        description="Enable confidence-based automatic fallback",
+    )
+    confidence_min_threshold: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence before triggering fallback",
+    )
+    confidence_high_threshold: float = Field(
+        default=0.85,
+        ge=0.5,
+        le=1.0,
+        description="Threshold for HIGH confidence level",
+    )
+    confidence_medium_threshold: float = Field(
+        default=0.6,
+        ge=0.3,
+        le=0.9,
+        description="Threshold for MEDIUM confidence level",
+    )
+    confidence_max_fallback_attempts: int = Field(
+        default=2,
+        ge=1,
+        le=5,
+        description="Maximum fallback strategy attempts",
+    )
+
+    # =========================================================================
+    # Evidence-First Generation Settings
+    # =========================================================================
+    evidence_first_enabled: bool = Field(
+        default=True,
+        description="Enable evidence-first 2-step generation (reduces hallucinations)",
+    )
+    evidence_first_max_evidences: int = Field(
+        default=8,
+        ge=3,
+        le=15,
+        description="Maximum evidence items to extract",
+    )
+    evidence_first_min_coverage: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Minimum query term coverage required",
+    )
+
+    # =========================================================================
+    # Entity Normalization Settings
+    # =========================================================================
+    entity_normalization_enabled: bool = Field(
+        default=True,
+        description="Enable entity normalization for canonical forms",
+    )
+    entity_fuzzy_threshold: float = Field(
+        default=0.8,
+        ge=0.5,
+        le=1.0,
+        description="Threshold for fuzzy entity matching",
+    )
+
     # Semantic cache settings
     semantic_cache_enabled: bool = Field(
         default=True,

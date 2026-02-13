@@ -11,6 +11,7 @@ Based on the RAG-Fusion paper: https://arxiv.org/abs/2401.04280
 
 import asyncio
 import re
+from collections import defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any

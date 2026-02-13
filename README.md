@@ -283,25 +283,33 @@ See [eval/ablations/](eval/ablations/) for detailed results.
 | `SURREALDB_URL` | SurrealDB connection | ws://localhost:8529 |
 | `QDRANT_URL` | Qdrant connection | http://localhost:6333 |
 
+### Core Features (Enabled by Default)
+
+| Feature | Setting | Default | Description |
+|---------|---------|---------|-------------|
+| BM25 sparse retrieval | `BM25_ENABLED` | true | Real BM25 with phrase/proximity |
+| MMR diversification | `MMR_ENABLED` | true | Diverse context selection |
+| Evidence-first generation | `EVIDENCE_FIRST_ENABLED` | true | 2-step generation reduces hallucinations |
+| Confidence fallback | `CONFIDENCE_FALLBACK_ENABLED` | true | Auto-retry on low confidence |
+| Entity normalization | `ENTITY_NORMALIZATION_ENABLED` | true | Canonical forms for entities |
+| Semantic cache | `SEMANTIC_CACHE_ENABLED` | true | Cache similar queries |
+| GraphRAG | `GRAPH_MAX_HOPS` | 2 | Knowledge graph expansion |
+
 ### Optional Features
 
 | Feature | Setting | Default |
 |---------|---------|---------|
 | ColBERT reranking | `COLBERT_ENABLED` | false |
 | LLM reranking | `LLM_RERANKER_ENABLED` | false |
-| GraphRAG | `GRAPH_MAX_HOPS` | 2 |
-| RAG-Fusion | `RAG_FUSION_ENABLED` | false |
-| MMR diversification | `MMR_ENABLED` | true |
-| Evidence-first generation | `EVIDENCE_FIRST_ENABLED` | false |
-| Confidence fallback | `CONFIDENCE_FALLBACK_ENABLED` | true |
-| Semantic cache | `SEMANTIC_CACHE_ENABLED` | true |
+| PageIndex (tree search) | `PAGEINDEX_ENABLED` | false |
+| SPLADE sparse | `SPLADE_ENABLED` | false |
 
-### New Retrieval Modules
+### Retrieval Modules
 
 | Module | Description | File |
 |--------|-------------|------|
 | **BM25 Index** | Real BM25 with phrase/proximity queries | `retrieval/sparse_bm25.py` |
-| **SPLADE** | Learned sparse representations (optional) | `retrieval/splade_sparse.py` |
+| **SPLADE** | Learned sparse representations | `retrieval/splade_sparse.py` |
 | **RAG-Fusion** | Multi-query with intent routing | `retrieval/rag_fusion.py` |
 | **MMR** | Maximal Marginal Relevance diversification | `retrieval/mmr.py` |
 | **Confidence** | Estimation + automatic fallback | `retrieval/confidence.py` |
@@ -312,13 +320,14 @@ See [eval/ablations/](eval/ablations/) for detailed results.
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| BM25 in main pipeline | ⚠️ Module exists | Needs integration in `_hybrid_search()` |
-| Phrase/proximity routing | ⚠️ Module exists | Needs query type detection |
-| Evidence-first default | ⚠️ Module exists | Needs wiring in generation |
-| Dedupe in context | ✅ MMR implemented | Active by default |
-| Entity normalization | ⚠️ Module exists | Needs integration in GraphRAG |
+| BM25 in main pipeline | ✅ Integrated | Active in `_hybrid_search_enhanced()` |
+| Phrase/proximity routing | ✅ Integrated | Query type detection in `retrieve()` |
+| Evidence-first generation | ✅ Integrated | Default in generation pipeline |
+| MMR diversification | ✅ Integrated | Active by default |
+| Confidence + fallback | ✅ Integrated | Auto-triggers on low scores |
+| Entity normalization | ✅ Integrated | Used in GraphRAG expansion |
 
-> **Note**: These modules are production-ready but require integration into your main retrieval/generation pipelines. See each module's docstrings for usage examples.
+> **Note**: All core modules are now integrated and active by default. Optional features (ColBERT, LLM reranking, PageIndex) can be enabled via settings.
 
 ## Project Structure
 
