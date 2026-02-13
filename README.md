@@ -294,7 +294,7 @@ MIT License
 
 ## Author
 
-**Javier Pazó** - AEEH (Asociación Española de Enfermedades Hepáticas)
+**Javier Pazó** - AEEH (Asociación Española para el Estudio del Hígado)
 
 ---
 
