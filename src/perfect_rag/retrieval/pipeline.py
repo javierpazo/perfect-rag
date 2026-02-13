@@ -82,10 +82,6 @@ class RetrievalPipeline:
         self._pageindex_retriever = None
         self._pageindex_available = None  # None = not checked yet
 
-        # BM25 index (lazy loaded, per-document indexing)
-        self._bm25_index = None
-        self._bm25_available = None
-
         # Entity normalizer (lazy loaded)
         self._entity_normalizer = None
         self._entity_normalizer_available = None
@@ -452,16 +448,32 @@ class RetrievalPipeline:
         query: str,
         limit: int,
     ) -> list[dict[str, Any]] | None:
-        """Search using BM25 with phrase matching."""
-        bm25_index = await self._get_bm25_index()
-        if bm25_index is None:
+        """Search using BM25 with phrase matching.
+
+        Uses the shared BM25Manager to access the same index used during ingestion.
+        """
+        if not self.settings.bm25_enabled:
             return None
 
         try:
+            from perfect_rag.retrieval.sparse_bm25 import BM25Manager
+
+            # Get shared index (same as ingestion)
+            bm25_index = BM25Manager.get_index(
+                index_path=self.settings.bm25_index_path,
+                settings=self.settings,
+            )
+
+            if bm25_index.num_docs == 0:
+                logger.debug("BM25 index is empty, skipping")
+                return None
+
+            # Search with phrase matching
             results = bm25_index.search(
                 query=query,
                 top_k=limit,
                 use_phrases=True,
+                use_proximity=True,
             )
 
             # Convert to standard format
@@ -470,46 +482,23 @@ class RetrievalPipeline:
                     "id": r.doc_id,
                     "score": r.score,
                     "bm25_score": r.score,
-                    "phrase_matches": r.phrase_matches,
+                    "phrase_matches": [
+                        {"phrase": m.phrase, "start": m.start_pos, "end": m.end_pos}
+                        for m in r.phrase_matches
+                    ],
+                    "proximity_score": r.proximity_score,
                     "source": "bm25",
                     "payload": r.metadata or {},
                 }
                 for r in results
             ]
+
+        except ImportError as e:
+            logger.warning("BM25 not available", error=str(e))
+            return None
         except Exception as e:
             logger.warning("BM25 search failed", error=str(e))
             return None
-
-    async def _get_bm25_index(self):
-        """Lazy load or create BM25 index."""
-        if self._bm25_available is False:
-            return None
-
-        if self._bm25_index is None:
-            try:
-                from perfect_rag.retrieval.sparse_bm25 import BM25Index
-
-                self._bm25_index = BM25Index(
-                    k1=self.settings.bm25_k1,
-                    b=self.settings.bm25_b,
-                    phrase_boost=self.settings.bm25_phrase_boost,
-                )
-                self._bm25_available = True
-                logger.info("BM25 index initialized")
-
-                # TODO: Index existing chunks from SurrealDB
-                # This would be done at startup or incrementally
-
-            except ImportError as e:
-                logger.warning("BM25 not available", error=str(e))
-                self._bm25_available = False
-                return None
-            except Exception as e:
-                logger.error("Failed to initialize BM25", error=str(e))
-                self._bm25_available = False
-                return None
-
-        return self._bm25_index
 
     def _rrf_fusion(
         self,

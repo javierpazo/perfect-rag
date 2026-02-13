@@ -34,6 +34,19 @@ from perfect_rag.models.relation import Relation
 logger = structlog.get_logger(__name__)
 
 
+# Lazy import for BM25 to avoid issues if not needed
+_bm25_manager = None
+
+
+def _get_bm25_manager():
+    """Lazy import BM25Manager."""
+    global _bm25_manager
+    if _bm25_manager is None:
+        from perfect_rag.retrieval.sparse_bm25 import BM25Manager
+        _bm25_manager = BM25Manager
+    return _bm25_manager
+
+
 class IngestionPipeline:
     """Complete document ingestion pipeline.
 
@@ -346,9 +359,12 @@ class IngestionPipeline:
         doc: Document,
         chunks_with_embeddings: list[dict[str, Any]],
     ) -> None:
-        """Store chunks in SurrealDB and Qdrant."""
+        """Store chunks in SurrealDB, Qdrant, and BM25 index."""
         # Prepare batch for Qdrant
         qdrant_points = []
+
+        # Prepare batch for BM25
+        bm25_documents = []
 
         for item in chunks_with_embeddings:
             chunk: Chunk = item["chunk"]
@@ -373,8 +389,38 @@ class IngestionPipeline:
                 },
             })
 
+            # Prepare BM25 document
+            bm25_documents.append((
+                chunk.id,
+                chunk.content,
+                {
+                    "doc_id": doc.id,
+                    "doc_title": doc.metadata.title,
+                    "chunk_index": chunk.chunk_index,
+                },
+            ))
+
         # Batch upsert to Qdrant
         await self.qdrant.upsert_chunks_batch(qdrant_points)
+
+        # Index in BM25 (if enabled)
+        if self.settings.bm25_enabled:
+            try:
+                BM25Manager = _get_bm25_manager()
+                bm25_index = BM25Manager.get_index(
+                    index_path=self.settings.bm25_index_path,
+                    settings=self.settings,
+                )
+                bm25_index.add_batch(bm25_documents)
+                # Save index after batch
+                BM25Manager.save_index()
+                logger.info(
+                    "BM25 indexing complete",
+                    doc_id=doc.id,
+                    chunks_indexed=len(bm25_documents),
+                )
+            except Exception as e:
+                logger.warning("BM25 indexing failed", doc_id=doc.id, error=str(e))
 
     async def _extract_graph(
         self,
@@ -452,6 +498,16 @@ class IngestionPipeline:
 
         # Delete existing chunks from Qdrant
         await self.qdrant.delete_chunks_by_doc(doc_id)
+
+        # Delete from BM25 index
+        if self.settings.bm25_enabled:
+            try:
+                BM25Manager = _get_bm25_manager()
+                bm25_index = BM25Manager.get_index(settings=self.settings)
+                removed = bm25_index.remove_by_doc_prefix(doc_id)
+                logger.info("Removed from BM25", doc_id=doc_id, chunks_removed=removed)
+            except Exception as e:
+                logger.warning("Failed to remove from BM25", doc_id=doc_id, error=str(e))
 
         # Re-process
         doc = Document(**doc_data)

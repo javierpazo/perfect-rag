@@ -402,6 +402,10 @@ class Settings(BaseSettings):
         default=True,
         description="Enable BM25 sparse retrieval with phrase/proximity queries",
     )
+    bm25_index_path: str = Field(
+        default="./bm25_index",
+        description="Path to persist BM25 index on disk",
+    )
     bm25_k1: float = Field(
         default=1.5,
         ge=0.0,

@@ -461,6 +461,230 @@ class BM25Index:
             "proximity_window": self.proximity_window,
         }
 
+    def save(self, path: str) -> None:
+        """Save index to disk.
+
+        Args:
+            path: Directory path to save index files
+        """
+        import json
+        from pathlib import Path
+
+        path = Path(path)
+        path.mkdir(parents=True, exist_ok=True)
+
+        # Save documents (without token lists for efficiency)
+        docs_data = {}
+        for doc_id, doc in self.documents.items():
+            docs_data[doc_id] = {
+                "text": doc.text,
+                "token_positions": {k: list(v) for k, v in doc.token_positions.items()},
+                "doc_length": doc.doc_length,
+                "metadata": doc.metadata,
+            }
+
+        with open(path / "documents.json", "w", encoding="utf-8") as f:
+            json.dump(docs_data, f, ensure_ascii=False)
+
+        # Save inverted index
+        inv_index_data = {k: list(v) for k, v in self.inverted_index.items()}
+        with open(path / "inverted_index.json", "w", encoding="utf-8") as f:
+            json.dump(inv_index_data, f)
+
+        # Save term frequencies
+        tf_data = {doc_id: dict(terms) for doc_id, terms in self.term_freqs.items()}
+        with open(path / "term_freqs.json", "w", encoding="utf-8") as f:
+            json.dump(tf_data, f)
+
+        # Save metadata
+        metadata = {
+            "k1": self.k1,
+            "b": self.b,
+            "phrase_boost": self.phrase_boost,
+            "proximity_window": self.proximity_window,
+            "num_docs": self.num_docs,
+            "avgdl": self.avgdl,
+            "doc_lengths": self.doc_lengths,
+            "doc_freqs": dict(self.doc_freqs),
+        }
+        with open(path / "metadata.json", "w", encoding="utf-8") as f:
+            json.dump(metadata, f)
+
+        logger.info("BM25 index saved", path=str(path), num_docs=self.num_docs)
+
+    def load(self, path: str) -> None:
+        """Load index from disk.
+
+        Args:
+            path: Directory path containing index files
+        """
+        import json
+        from pathlib import Path
+
+        path = Path(path)
+
+        if not (path / "metadata.json").exists():
+            logger.warning("BM25 index not found, starting fresh", path=str(path))
+            return
+
+        # Load metadata
+        with open(path / "metadata.json", "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+
+        self.k1 = metadata["k1"]
+        self.b = metadata["b"]
+        self.phrase_boost = metadata["phrase_boost"]
+        self.proximity_window = metadata["proximity_window"]
+        self.num_docs = metadata["num_docs"]
+        self.avgdl = metadata["avgdl"]
+        self.doc_lengths = metadata["doc_lengths"]
+        self.doc_freqs = defaultdict(int, metadata["doc_freqs"])
+
+        # Load documents
+        with open(path / "documents.json", "r", encoding="utf-8") as f:
+            docs_data = json.load(f)
+
+        self.documents = {}
+        for doc_id, data in docs_data.items():
+            # Reconstruct tokens from positions
+            tokens = []
+            for token, positions in data["token_positions"].items():
+                for pos in positions:
+                    tokens.append((pos, token))
+            tokens.sort(key=lambda x: x[0])
+            tokens = [t[1] for t in tokens]
+
+            self.documents[doc_id] = BM25Document(
+                doc_id=doc_id,
+                text=data["text"],
+                tokens=tokens,
+                token_positions={k: set(v) for k, v in data["token_positions"].items()},
+                doc_length=data["doc_length"],
+                metadata=data["metadata"],
+            )
+
+        # Load inverted index
+        with open(path / "inverted_index.json", "r", encoding="utf-8") as f:
+            inv_index_data = json.load(f)
+        self.inverted_index = defaultdict(set, {k: set(v) for k, v in inv_index_data.items()})
+
+        # Load term frequencies
+        with open(path / "term_freqs.json", "r", encoding="utf-8") as f:
+            tf_data = json.load(f)
+        self.term_freqs = defaultdict(lambda: defaultdict(int))
+        for doc_id, terms in tf_data.items():
+            self.term_freqs[doc_id] = defaultdict(int, terms)
+
+        logger.info("BM25 index loaded", path=str(path), num_docs=self.num_docs)
+
+    def add_batch(
+        self,
+        documents: list[tuple[str, str, dict[str, Any] | None]],
+    ) -> int:
+        """Add multiple documents efficiently.
+
+        Args:
+            documents: List of (doc_id, text, metadata) tuples
+
+        Returns:
+            Number of documents added
+        """
+        for doc_id, text, metadata in documents:
+            self.add_document(doc_id, text, metadata)
+        return len(documents)
+
+    def remove_by_doc_prefix(self, doc_prefix: str) -> int:
+        """Remove all documents with ID starting with prefix.
+
+        Useful for removing all chunks of a document.
+
+        Args:
+            doc_prefix: Document ID prefix (e.g., "doc_123_chunk_")
+
+        Returns:
+            Number of documents removed
+        """
+        to_remove = [
+            doc_id for doc_id in self.documents.keys()
+            if doc_id.startswith(doc_prefix) or doc_id.split("_chunk_")[0] == doc_prefix.rstrip("_chunk_").rstrip("_")
+        ]
+
+        # Also handle full doc_id (without chunk suffix)
+        for doc_id in list(self.documents.keys()):
+            # Extract doc_id from chunk_id (format: doc_123_chunk_0)
+            if "_chunk_" in doc_id:
+                parent_doc = doc_id.rsplit("_chunk_", 1)[0]
+                if parent_doc == doc_prefix.rstrip("_"):
+                    to_remove.append(doc_id)
+
+        for doc_id in set(to_remove):
+            self.remove_document(doc_id)
+
+        return len(set(to_remove))
+
+
+class BM25Manager:
+    """Singleton manager for shared BM25 index.
+
+    Ensures the same BM25 index is used across ingestion and retrieval.
+    """
+
+    _instance: "BM25Manager | None" = None
+    _index: BM25Index | None = None
+    _index_path: str | None = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    @classmethod
+    def get_index(
+        cls,
+        index_path: str | None = None,
+        settings: Settings | None = None,
+    ) -> BM25Index:
+        """Get or create the shared BM25 index.
+
+        Args:
+            index_path: Path to persist index (default: ./bm25_index)
+            settings: Application settings
+
+        Returns:
+            Shared BM25Index instance
+        """
+        settings = settings or get_settings()
+
+        if cls._index is None:
+            index_path = index_path or settings.bm25_index_path if hasattr(settings, 'bm25_index_path') else "./bm25_index"
+            cls._index_path = index_path
+
+            cls._index = BM25Index(
+                k1=settings.bm25_k1 if hasattr(settings, 'bm25_k1') else 1.5,
+                b=settings.bm25_b if hasattr(settings, 'bm25_b') else 0.75,
+                phrase_boost=settings.bm25_phrase_boost if hasattr(settings, 'bm25_phrase_boost') else 1.5,
+                proximity_window=settings.bm25_proximity_window if hasattr(settings, 'bm25_proximity_window') else 10,
+                settings=settings,
+            )
+
+            # Load existing index if available
+            cls._index.load(index_path)
+
+        return cls._index
+
+    @classmethod
+    def save_index(cls) -> None:
+        """Save the shared index to disk."""
+        if cls._index is not None and cls._index_path is not None:
+            cls._index.save(cls._index_path)
+
+    @classmethod
+    def reset(cls) -> None:
+        """Reset the singleton (for testing)."""
+        cls._instance = None
+        cls._index = None
+        cls._index_path = None
+
 
 class BM25HybridRetriever:
     """Hybrid retriever combining BM25 with dense vectors.
