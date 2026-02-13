@@ -395,10 +395,6 @@ black src/ && ruff check src/ --fix
 
 MIT License
 
-## Author
-
-**Javier Pazó** - AEEH (Spanish Association for the Study of the Liver)
-
 ---
 
 ## Acknowledgments
