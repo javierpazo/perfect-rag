@@ -17,8 +17,6 @@
 
 > **Important**: "Reranker Score" measures the cross-encoder's confidence in result relevance, NOT retrieval accuracy against ground truth labels. For production evaluation, use ground truth metrics (Recall@k, nDCG@k, MRR) with domain-specific test sets.
 
-> **Note on Sparse**: The current BM25 implementation is Python-based for prototyping. For production workloads requiring maximum recall, consider integrating Elasticsearch/Tantivy for true inverted index with phrase/proximity queries.
-
 > See [eval/results/](eval/results/) for full benchmark data.
 
 ## Why Perfect RAG?
@@ -259,16 +257,27 @@ See [eval/ablations/](eval/ablations/) for detailed results.
 
 ### Metrics
 
-**Current benchmark measures:**
-- **Reranker Score**: Cross-encoder confidence (0.0-1.0) - NOT retrieval accuracy
+**Unit tests verify:**
+- BM25 indexing, search, phrase matching, proximity scoring
+- RAG-Fusion intent classification, query expansion, RRF fusion
+- Evidence-first extraction, coverage calculation
+- MMR diversification, diversity scoring
+- Confidence estimation, fallback strategies
 
-**Ground truth metrics (recommended):**
+Run with: `pytest tests/test_retrieval_enhancements.py -v`
+
+**Benchmark metrics (eval/results/):**
+- **Reranker Score**: Cross-encoder confidence (0.0-1.0)
+- **Latency**: P50/P95 response times
+- **Success Rate**: Query completion rate
+
+**For ground truth evaluation:**
 - **Recall@k**: Fraction of relevant docs in top-k
 - **nDCG@k**: Normalized discounted cumulative gain
 - **MRR@k**: Mean reciprocal rank
 - **EM/F1**: Answer quality vs reference
 
-> **Limitation**: Current results show reranker confidence, not retrieval accuracy against ground truth. See [eval/README.md](eval/README.md) to add ground truth evaluation.
+See [eval/README.md](eval/README.md) to add ground truth datasets.
 
 ## Configuration
 
