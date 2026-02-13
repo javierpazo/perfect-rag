@@ -107,7 +107,11 @@ If you're unsure about something, say so."""
             # Header with source info
             if include_metadata:
                 header = f"[{i}] Source: {chunk.doc_title}"
-                if chunk.chunk_index > 0:
+                # Add page number if available (from PageIndex or metadata)
+                page_number = chunk.metadata.get("page_number")
+                if page_number:
+                    header += f" (p.{page_number})"
+                elif chunk.chunk_index > 0:
                     header += f" (section {chunk.chunk_index + 1})"
                 context_parts.append(header)
             else:

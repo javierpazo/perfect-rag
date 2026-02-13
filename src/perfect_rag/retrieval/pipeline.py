@@ -28,6 +28,7 @@ class RetrievalPipeline:
     Pipeline steps:
     1. Context awareness gate (determine if retrieval needed)
     2. Query rewriting (expansion, HyDE, decomposition)
+    2.5. PageIndex tree search (optional, for structured documents)
     3. Hybrid search (dense + sparse vectors)
     4. GraphRAG expansion (knowledge graph traversal)
     5. Cross-encoder reranking
@@ -68,6 +69,10 @@ class RetrievalPipeline:
         self._llm_reranker = None
         self._llm_reranker_available = None  # None = not checked yet
 
+        # PageIndex retriever (lazy loaded)
+        self._pageindex_retriever = None
+        self._pageindex_available = None  # None = not checked yet
+
     async def retrieve(
         self,
         query: str,
@@ -79,6 +84,9 @@ class RetrievalPipeline:
         use_graph_expansion: bool = True,
         use_query_rewriting: bool = True,
         use_context_gate: bool = True,
+        use_pageindex: bool | None = None,
+        doc_id: str | None = None,
+        doc_metadata: dict[str, Any] | None = None,
         acl_filter: list[str] | None = None,
         metadata_filter: dict[str, Any] | None = None,
     ) -> RetrievalResult:
@@ -93,6 +101,9 @@ class RetrievalPipeline:
             use_llm_reranking: Whether to apply LLM-based reranking (default from settings)
             use_graph_expansion: Whether to use GraphRAG expansion
             use_query_rewriting: Whether to rewrite/expand query
+            use_pageindex: Whether to use PageIndex tree search (default from settings)
+            doc_id: Document ID for PageIndex
+            doc_metadata: Document metadata for PageIndex decision
             acl_filter: User roles for ACL filtering
             metadata_filter: Additional metadata filters
 
@@ -142,6 +153,39 @@ class RetrievalPipeline:
                 strategy=rewritten["strategy"],
                 query_count=len(rewritten["queries"]),
             )
+
+        # Step 2.5: PageIndex tree search (optional - for structured documents)
+        pageindex_ranges = None
+        pageindex_used = False
+        if use_pageindex is None:
+            use_pageindex = self.settings.pageindex_enabled
+
+        if use_pageindex and doc_id and self.llm:
+            pageindex_ranges = await self._pageindex_tree_search(
+                query=query,
+                doc_id=doc_id,
+                doc_metadata=doc_metadata,
+            )
+            if pageindex_ranges:
+                pageindex_used = True
+                # Update metadata filter to include page ranges
+                pageindex_filter = self._get_pageindex_filter(pageindex_ranges)
+                if pageindex_filter:
+                    if metadata_filter:
+                        # Merge filters
+                        metadata_filter = {
+                            "must": [
+                                metadata_filter,
+                                pageindex_filter,
+                            ]
+                        }
+                    else:
+                        metadata_filter = pageindex_filter
+                logger.info(
+                    "PageIndex tree search complete",
+                    doc_id=doc_id,
+                    ranges_count=len(pageindex_ranges),
+                )
 
         # Step 3: Hybrid search for each query variant
         all_results = []
@@ -285,6 +329,8 @@ class RetrievalPipeline:
                 "reranked": use_reranking,
                 "colbert_reranked": colbert_used,
                 "llm_reranked": llm_reranked,
+                "pageindex_used": pageindex_used,
+                "pageindex_ranges": [pr.to_dict() for pr in pageindex_ranges] if pageindex_ranges else None,
             },
         )
 
@@ -536,6 +582,107 @@ class RetrievalPipeline:
 
         except Exception as e:
             logger.error("LLM reranking failed", error=str(e))
+            return None
+
+    async def _get_pageindex_retriever(self):
+        """Lazy load PageIndex retriever."""
+        if self._pageindex_available is False:
+            return None
+
+        if self._pageindex_retriever is None:
+            try:
+                from perfect_rag.retrieval.pageindex import PageIndexRetriever
+
+                self._pageindex_retriever = PageIndexRetriever(
+                    settings=self.settings,
+                    llm_gateway=self.llm,
+                )
+                await self._pageindex_retriever.initialize()
+                self._pageindex_available = True
+                logger.info("PageIndex retriever initialized")
+            except ImportError as e:
+                logger.warning(
+                    "PageIndex not available, skipping tree-based retrieval",
+                    error=str(e),
+                )
+                self._pageindex_available = False
+                return None
+            except Exception as e:
+                logger.error(
+                    "Failed to initialize PageIndex retriever",
+                    error=str(e),
+                )
+                self._pageindex_available = False
+                return None
+
+        return self._pageindex_retriever
+
+    async def _pageindex_tree_search(
+        self,
+        query: str,
+        doc_id: str,
+        doc_metadata: dict[str, Any] | None = None,
+    ) -> list | None:
+        """
+        Execute PageIndex tree search for relevant page ranges.
+
+        Returns None if PageIndex is not available or not applicable.
+        Returns list of PageRange objects if successful.
+        """
+        retriever = await self._get_pageindex_retriever()
+        if retriever is None:
+            return None
+
+        # Check if PageIndex should be used for this document
+        doc_metadata = doc_metadata or {}
+        if not retriever.should_use_pageindex(doc_metadata):
+            logger.debug(
+                "PageIndex not applicable for document",
+                doc_id=doc_id,
+                page_count=doc_metadata.get("page_count", 0),
+            )
+            return None
+
+        try:
+            page_ranges = await retriever.tree_search(
+                query=query,
+                doc_id=doc_id,
+            )
+            return page_ranges
+        except Exception as e:
+            logger.error("PageIndex tree search failed", doc_id=doc_id, error=str(e))
+            return None
+
+    def _get_pageindex_filter(
+        self,
+        page_ranges: list,
+    ) -> dict[str, Any] | None:
+        """Convert PageIndex ranges to Qdrant metadata filter."""
+        if not page_ranges:
+            return None
+
+        try:
+            from perfect_rag.retrieval.pageindex import PageIndexRetriever
+
+            # Create a temporary retriever just for the filter conversion
+            temp_retriever = PageIndexRetriever.__new__(PageIndexRetriever)
+            return temp_retriever.get_metadata_filter(page_ranges)
+        except Exception:
+            # Fallback: build filter manually
+            conditions = []
+            for pr in page_ranges:
+                conditions.append({
+                    "key": "page_number",
+                    "range": {
+                        "gte": pr.start,
+                        "lte": pr.end,
+                    },
+                })
+
+            if len(conditions) == 1:
+                return conditions[0]
+            elif len(conditions) > 1:
+                return {"should": conditions}
             return None
 
     async def search_entities(

@@ -275,6 +275,37 @@ class Settings(BaseSettings):
     )
 
     # =========================================================================
+    # PageIndex Settings (VectifyAI)
+    # =========================================================================
+    pageindex_enabled: bool = Field(
+        default=False,
+        description="Enable PageIndex tree-based retrieval for structured documents",
+    )
+    pageindex_tree_path: str = Field(
+        default="./pageindex_trees",
+        description="Path to store PageIndex tree structures",
+    )
+    pageindex_min_pages: int = Field(
+        default=20,
+        ge=1,
+        description="Minimum pages for a document to use PageIndex",
+    )
+    pageindex_use_for_citations: bool = Field(
+        default=True,
+        description="Use PageIndex page ranges for citation formatting",
+    )
+    pageindex_max_tree_depth: int = Field(
+        default=5,
+        ge=1,
+        le=10,
+        description="Maximum depth for PageIndex tree traversal",
+    )
+    pageindex_llm_model: str = Field(
+        default="gpt-4o-mini",
+        description="LLM model for PageIndex tree reasoning",
+    )
+
+    # =========================================================================
     # LLM Reranker Settings
     # =========================================================================
     llm_reranker_enabled: bool = Field(
