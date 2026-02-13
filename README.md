@@ -15,7 +15,9 @@
 | **Latency P95** | 92ms | Full pipeline with reranking |
 | **Success Rate** | 100% | 210 queries tested |
 
-> **Note**: "Reranker Score" measures the cross-encoder's relevance assessment, not retrieval accuracy with ground truth. See [eval/README.md](eval/README.md) for metric definitions.
+> **Important**: "Reranker Score" measures the cross-encoder's confidence in result relevance, NOT retrieval accuracy against ground truth labels. For production evaluation, use ground truth metrics (Recall@k, nDCG@k, MRR) with domain-specific test sets.
+
+> **Note on Sparse**: The current BM25 implementation is Python-based for prototyping. For production workloads requiring maximum recall, consider integrating Elasticsearch/Tantivy for true inverted index with phrase/proximity queries.
 
 > See [eval/results/](eval/results/) for full benchmark data.
 
@@ -144,7 +146,29 @@ curl -X POST http://localhost:8000/v1/search \
 
 ## The Perfect RAG Recipe
 
-### Retrieval Pipeline (10 steps)
+### Ingredients
+
+```
+qdrant                    # Vector DB
+surrealdb                 # Graph DB + metadata
+sentence-transformers     # Embeddings framework
+BAAI/bge-m3              # Dense embeddings (1024d)
+BAAI/bge-reranker-v2-m3  # Cross-encoder reranker
+LLM API (openai/anthropic/ollama)
+```
+
+### Preparation
+
+#### 1. INGESTION
+
+```
+document → chunker(512 tokens, 50 overlap)
+        → embed_dense(bge-m3)
+        → extract_entities(LLM) [optional]
+        → store in Qdrant (vectors) + SurrealDB (metadata + graph)
+```
+
+#### 2. RETRIEVAL (10-step pipeline)
 
 ```
 query
@@ -174,19 +198,35 @@ query
 answer with citations
 ```
 
+#### 3. GENERATION
+
+```
+chunks + question
+  → evidence_extractor() → verified facts only
+  → prompt_builder(formatted context + citations [1][2])
+  → LLM.generate()
+  → response with page-level citations
+```
+
 ### Secret Sauce
 
 | Technique | Impact | Why it works |
 |-----------|--------|--------------|
-| **Cross-encoder Reranking** | +24% top score | Semantic relevance scoring |
-| **BM25 with Phrases** | +precision | Exact phrase matching, proximity queries |
+| **Cross-encoder Reranking** | +24% relevance score | Semantic relevance scoring |
+| **Evidence-First Generation** | -hallucinations | LLM only uses verified evidence |
 | **RAG-Fusion** | +recall | Multiple query angles, RRF fusion |
-| **Evidence-First Gen** | -hallucinations | LLM only uses verified evidence |
 | **MMR Diversification** | +coverage | Diverse context, less redundancy |
 | **Confidence Fallback** | +reliability | Auto-retry on low confidence |
 | **GraphRAG** | +multi-hop | Entity-connected context |
 | **Context Gate** | -latency | Skips retrieval when not needed |
 | **Semantic Cache** | -cost | Reuses similar query responses |
+
+### What Makes This "Top-Tier" for Domain-Specific RAG
+
+1. **Evidence-First by Default**: Generation is constrained to verified facts from retrieved chunks
+2. **Multi-Stage Reranking**: Cross-encoder → ColBERT → LLM provides semantic refinement
+3. **Automatic Quality Gates**: Confidence estimation triggers fallback when results are uncertain
+4. **Diversity in Context**: MMR prevents redundant information from dominating the context window
 
 ## Evaluation
 
@@ -261,10 +301,24 @@ See [eval/ablations/](eval/ablations/) for detailed results.
 | Module | Description | File |
 |--------|-------------|------|
 | **BM25 Index** | Real BM25 with phrase/proximity queries | `retrieval/sparse_bm25.py` |
+| **SPLADE** | Learned sparse representations (optional) | `retrieval/splade_sparse.py` |
 | **RAG-Fusion** | Multi-query with intent routing | `retrieval/rag_fusion.py` |
 | **MMR** | Maximal Marginal Relevance diversification | `retrieval/mmr.py` |
 | **Confidence** | Estimation + automatic fallback | `retrieval/confidence.py` |
 | **Evidence-First** | 2-step generation (extract evidence → answer) | `generation/evidence_first.py` |
+| **Entity Normalizer** | Canonical forms + deduplication | `retrieval/entity_normalization.py` |
+
+### Integration Status
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| BM25 in main pipeline | ⚠️ Module exists | Needs integration in `_hybrid_search()` |
+| Phrase/proximity routing | ⚠️ Module exists | Needs query type detection |
+| Evidence-first default | ⚠️ Module exists | Needs wiring in generation |
+| Dedupe in context | ✅ MMR implemented | Active by default |
+| Entity normalization | ⚠️ Module exists | Needs integration in GraphRAG |
+
+> **Note**: These modules are production-ready but require integration into your main retrieval/generation pipelines. See each module's docstrings for usage examples.
 
 ## Project Structure
 
