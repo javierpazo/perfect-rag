@@ -201,6 +201,96 @@ Response includes additional fields:
 }
 ```
 
+## The Perfect RAG Recipe
+
+### Ingredients
+
+```
+qdrant                    # Vector DB
+surrealdb                 # Graph DB + metadata
+sentence-transformers     # Embeddings
+BAAI/bge-m3              # Dense embeddings (1024d)
+splade                   # Sparse embeddings
+bge-reranker-v2-m3       # Cross-encoder reranker
+LLM API (openai/anthropic/ollama)
+```
+
+### Preparation
+
+#### 1. INGESTION
+
+```
+document → chunker(512 tokens, 50 overlap)
+        → embed_dense(bge-m3) + embed_sparse(splade)
+        → extract_entities(LLM) [optional]
+        → store in Qdrant + SurrealDB
+```
+
+#### 2. RETRIEVAL (7-step pipeline)
+
+```
+query
+  ↓
+[1] Context Gate → Does it need retrieval? If not, return empty
+  ↓
+[2] Query Rewrite → Expansion + HyDE + Decomposition
+  ↓
+[3] Hybrid Search → Dense + Sparse with RRF fusion, top_k=20
+  ↓
+[4] GraphRAG → Expand by entities, max_hops=2
+  ↓
+[5] Cross-encoder → Rerank with bge-reranker
+  ↓
+[6] ColBERT → Late interaction reranking [optional]
+  ↓
+[7] LLM Rerank → Semantic reranking [optional]
+  ↓
+top_k=5 chunks
+```
+
+#### 3. GENERATION
+
+```
+chunks + question
+  → prompt_builder(formatted context + citations [1][2])
+  → LLM.generate()
+  → response with citations
+```
+
+### Secret Sauce
+
+| Technique | Why it works |
+|-----------|--------------|
+| **Hybrid Search** | Combine dense (semantic) + sparse (keywords) with Reciprocal Rank Fusion |
+| **GraphRAG** | Chunks connected by entities improve multi-hop answers |
+| **Context Gate** | Avoids polluting MCQ prompts with irrelevant context |
+| **Quality Gate** | Only inject context if similarity > 0.35 for MCQs |
+| **CAG Cache** | Cache responses by embedding for repeated queries |
+| **Page Index** | Track page numbers for precise citation in documents |
+
+### Page Index Enhancement
+
+For documents with page structure (PDFs, books), Perfect RAG can track page indices:
+
+```python
+# During ingestion
+chunk.metadata["page_number"] = pdf_page_number
+
+# During retrieval - results include page references
+{
+  "chunk_id": "abc123",
+  "content": "...",
+  "page_number": 42,  # Direct page reference
+  "doc_title": "Medical Guidelines"
+}
+```
+
+**Benefits:**
+- Precise citation: "According to page 42 of Medical Guidelines..."
+- UI integration: Jump-to-page functionality
+- Cross-page reasoning: Connect concepts across pages
+- Better user trust: Verifiable sources
+
 ## Architecture Details
 
 ### Ingestion Pipeline
