@@ -1,0 +1,18 @@
+# TREC-format qrels file
+# Format: query_id  0  doc_id  relevance
+# Relevance: 0=not relevant, 1=partially relevant, 2=highly relevant
+#
+# Note: These are manually annotated relevance judgments for the medqa_small dataset.
+# Doc IDs correspond to document titles in the corpus (simplified for demo purposes).
+# In production, use stable chunk IDs from your vector store.
+
+q1	0	Clasificación TNM para el cáncer colorrectal	2
+q1	0	Tabla 27-5. Clasificación TNM del cáncer anal	1
+q2	0	Tratamiento erradicación H. pylori	2
+q2	0	Infección por Helicobacter pylori	1
+q3	0	Cirrosis hepática diagnóstico	2
+q3	0	Evaluación de fibrosis hepática	1
+q4	0	Criterios trasplante hepático	2
+q4	0	Indicaciones de trasplante	1
+q5	0	Screening hepatocarcinoma	2
+q5	0	Vigilancia carcinoma hepatocelular	1

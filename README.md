@@ -9,14 +9,15 @@
 
 | Metric | Value | Notes |
 |--------|-------|-------|
-| **Top Score (with reranking)** | 0.998 | Cross-encoder reranking on medical Q&A |
-| **Top Score (baseline)** | 0.805 | Dense vector search only |
-| **Improvement** | +24% | From reranking pipeline |
+| **Reranker Score (with reranking)** | 0.998 | Cross-encoder relevance for top result |
+| **Reranker Score (baseline)** | 0.805 | Dense vector similarity only |
 | **Latency P50** | 70ms | Full pipeline with reranking |
 | **Latency P95** | 92ms | Full pipeline with reranking |
 | **Success Rate** | 100% | 210 queries tested |
 
-> See [eval/results/](eval/results/) for full benchmark data and reproduction scripts.
+> **Note**: "Reranker Score" measures the cross-encoder's relevance assessment, not retrieval accuracy with ground truth. See [eval/README.md](eval/README.md) for metric definitions.
+
+> See [eval/results/](eval/results/) for full benchmark data.
 
 ## Why Perfect RAG?
 
@@ -171,19 +172,23 @@ top_k chunks
 ### Run Benchmarks
 
 ```bash
-# Full benchmark suite
-python eval/run_all.py
+# IR metrics (requires ground truth)
+python eval/metrics_ir.py --dataset eval/datasets/medqa_small
 
-# Specific benchmark
-python eval/benchmarks/retrieval_quality.py
-python eval/benchmarks/ablation_study.py
-python eval/benchmarks/latency_cost.py
+# Q&A metrics (EM/F1/attribution)
+python eval/metrics_qa.py --dataset eval/datasets/medqa_small
+
+# Load test (requires k6)
+k6 run eval/load_test.js
+
+# Comprehensive benchmark (reranker scores)
+python benchmarks/benchmark_comprehensive.py --iterations 3
 ```
 
 ### Ablation Studies
 
-| Configuration | Top Score | Latency P50 |
-|--------------|-----------|-------------|
+| Configuration | Reranker Score | Latency P50 |
+|--------------|----------------|-------------|
 | Full pipeline | 0.998 | 70ms |
 | - Cross-encoder | 0.805 | 20ms |
 | - GraphRAG | 0.998 | 72ms |
@@ -191,12 +196,18 @@ python eval/benchmarks/latency_cost.py
 
 See [eval/ablations/](eval/ablations/) for detailed results.
 
-### Metrics Tracked
+### Metrics
 
-- **Retrieval Quality**: Top-k relevance scores, MRR, NDCG
-- **Latency**: P50, P95, P99 by pipeline stage
-- **Cost**: Tokens per query, $/1k queries
-- **Citation Quality**: Groundedness, attribution accuracy
+**Current benchmark measures:**
+- **Reranker Score**: Cross-encoder confidence (0.0-1.0) - NOT retrieval accuracy
+
+**Ground truth metrics (recommended):**
+- **Recall@k**: Fraction of relevant docs in top-k
+- **nDCG@k**: Normalized discounted cumulative gain
+- **MRR@k**: Mean reciprocal rank
+- **EM/F1**: Answer quality vs reference
+
+> **Limitation**: Current results show reranker confidence, not retrieval accuracy against ground truth. See [eval/README.md](eval/README.md) to add ground truth evaluation.
 
 ## Configuration
 
@@ -287,4 +298,4 @@ MIT License
 
 - BGE-M3 embeddings by BAAI
 - GraphRAG concepts from Microsoft Research
-- PageIndex concept from VectifyAI (98.7% FinanceBench accuracy - their benchmark, not ours)
+- Reranking best practices from Cohere and BAAI
