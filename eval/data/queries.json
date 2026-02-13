@@ -1,0 +1,69 @@
+{
+  "queries": [
+    {
+      "id": "q1",
+      "query": "clasificación TNM del cáncer colorrectal",
+      "category": "factual",
+      "expected_topics": ["TNM", "cáncer", "colorrectal", "estadificación"]
+    },
+    {
+      "id": "q2",
+      "query": "tratamiento de primera línea para Helicobacter pylori",
+      "category": "therapeutic",
+      "expected_topics": ["Helicobacter", "antibióticos", "IBP", "claritromicina"]
+    },
+    {
+      "id": "q3",
+      "query": "algoritmo diagnóstico de enfermedad inflamatoria intestinal",
+      "category": "diagnostic",
+      "expected_topics": ["Crohn", "colitis", "endoscopia", "biomarcadores"]
+    },
+    {
+      "id": "q4",
+      "query": "criterios de Roma IV para síndrome de intestino irritable",
+      "category": "criteria",
+      "expected_topics": ["Roma", "SII", "dolor abdominal", "hábito intestinal"]
+    },
+    {
+      "id": "q5",
+      "query": "manejo de hemorragia digestiva alta no varicosa",
+      "category": "emergency",
+      "expected_topics": ["endoscopia", "hemostasia", "IBP", "Forrest"]
+    },
+    {
+      "id": "q6",
+      "query": "clasificación de Siewert para tumores de unión esofagogástrica",
+      "category": "classification",
+      "expected_topics": ["Siewert", "esofagogástrico", "tipo I", "tipo II", "tipo III"]
+    },
+    {
+      "id": "q7",
+      "query": "indicaciones de cirugía bariátrica según IMC",
+      "category": "surgical",
+      "expected_topics": ["obesidad", "IMC", "bypass", "sleeve"]
+    },
+    {
+      "id": "q8",
+      "query": "protocolo de sedación para colonoscopia",
+      "category": "procedural",
+      "expected_topics": ["propofol", "midazolam", "sedación", "monitorización"]
+    },
+    {
+      "id": "q9",
+      "query": "hepatitis autoinmune diagnóstico y tratamiento",
+      "category": "hepatology",
+      "expected_topics": ["autoanticuerpos", "ANA", "SMA", "corticoides", "azatioprina"]
+    },
+    {
+      "id": "q10",
+      "query": "displasia de Barrett vigilancia y manejo",
+      "category": "oncology",
+      "expected_topics": ["Barrett", "displasia", "ablación", "vigilancia endoscópica"]
+    }
+  ],
+  "config": {
+    "iterations_per_query": 3,
+    "timeout_ms": 30000,
+    "warmup_queries": 2
+  }
+}

@@ -1,0 +1,198 @@
+# Production Docker Compose for Perfect RAG
+#
+# Key differences from docker-compose.yml:
+# - SurrealDB with persistent storage (not memory mode)
+# - Redis for distributed rate limiting
+# - Proper resource limits
+# - Health checks with longer timeouts
+# - No source code mounts (uses built image)
+
+services:
+  # ==========================================================================
+  # RAG API - Main application
+  # ==========================================================================
+  rag-api:
+    image: ${REGISTRY:-}perfect-rag:${VERSION:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: perfect-rag-api
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      - SURREALDB_URL=ws://surrealdb:8000
+      - QDRANT_URL=http://qdrant:6333
+      - OXIGRAPH_URL=http://oxigraph:7878
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - WORKERS=${WORKERS:-4}
+    env_file:
+      - .env
+    volumes:
+      - rag_uploads:/app/uploads
+      - rag_cache:/app/cache
+    depends_on:
+      surrealdb:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  # ==========================================================================
+  # SurrealDB - Primary database + Graph (PERSISTENT)
+  # ==========================================================================
+  surrealdb:
+    image: surrealdb/surrealdb:v2
+    container_name: perfect-rag-surrealdb
+    command: >
+      start
+      --log info
+      --user ${SURREALDB_USER:-root}
+      --pass ${SURREALDB_PASS:-root}
+      --bind 0.0.0.0:8000
+      file:/data/surrealdb.db
+    ports:
+      - "${SURREALDB_PORT:-8529}:8000"
+    volumes:
+      - surrealdb_data:/data
+    restart: unless-stopped
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # ==========================================================================
+  # Qdrant - Vector search (PERSISTENT)
+  # ==========================================================================
+  qdrant:
+    image: qdrant/qdrant:v1.12.1
+    container_name: perfect-rag-qdrant
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__LOG_LEVEL=INFO
+    restart: unless-stopped
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  # ==========================================================================
+  # Oxigraph - RDF Triple Store / SPARQL (PERSISTENT)
+  # ==========================================================================
+  oxigraph:
+    image: oxigraph/oxigraph:latest
+    container_name: perfect-rag-oxigraph
+    command: serve --location /data --bind 0.0.0.0:7878
+    ports:
+      - "${OXIGRAPH_PORT:-7878}:7878"
+    volumes:
+      - oxigraph_data:/data
+    restart: unless-stopped
+    networks:
+      - rag-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+
+  # ==========================================================================
+  # Redis - Rate limiting + Cache
+  # ==========================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: perfect-rag-redis
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - rag-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+
+networks:
+  rag-network:
+    driver: bridge
+
+volumes:
+  surrealdb_data:
+    driver: local
+  qdrant_data:
+    driver: local
+  oxigraph_data:
+    driver: local
+  redis_data:
+    driver: local
+  rag_uploads:
+    driver: local
+  rag_cache:
+    driver: local

@@ -1,8 +1,22 @@
 # Perfect RAG
 
-**The most complete, production-ready RAG system.** Combining state-of-the-art techniques including GraphRAG, hybrid search, PageIndex, multi-stage reranking, and cache-augmented generation.
+**A production-grade RAG system with state-of-the-art retrieval techniques.** Combining GraphRAG, hybrid search, multi-stage reranking, and cache-augmented generation.
 
-> "Perfect RAG achieves 98.7% accuracy on FinanceBench with PageIndex tree-based retrieval."
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+## Benchmarked Performance
+
+| Metric | Value | Notes |
+|--------|-------|-------|
+| **Top Score (with reranking)** | 0.998 | Cross-encoder reranking on medical Q&A |
+| **Top Score (baseline)** | 0.805 | Dense vector search only |
+| **Improvement** | +24% | From reranking pipeline |
+| **Latency P50** | 70ms | Full pipeline with reranking |
+| **Latency P95** | 92ms | Full pipeline with reranking |
+| **Success Rate** | 100% | 210 queries tested |
+
+> See [eval/results/](eval/results/) for full benchmark data and reproduction scripts.
 
 ## Why Perfect RAG?
 
@@ -10,25 +24,85 @@
 |---------|-------------|-------------|
 | **Retrieval** | Hybrid (Dense + Sparse + RRF) | Dense only |
 | **Graph** | GraphRAG with entity expansion | None |
-| **Reranking** | 3-stage (Cross-encoder + ColBERT + LLM) | Single reranker |
-| **Structured Docs** | PageIndex tree reasoning | Chunk search only |
-| **Citations** | Page-level with verification | Chunk-level |
+| **Reranking** | 3-stage (Cross-encoder + ColBERT + LLM) | Single reranker or none |
+| **Citations** | Page-level with verification | Chunk-level or none |
 | **Cache** | CAG + Semantic cache | None |
 | **Query Smart** | Context gate + rewriting | Direct search |
 
 ## Features
 
-- **OpenAI-compatible API** with SSE streaming support
-- **Hybrid Search**: Dense (BGE-M3) + Sparse (BM25-style) with RRF fusion
-- **GraphRAG**: Knowledge graph expansion using SurrealDB and Oxigraph
-- **PageIndex**: Tree-based reasoning for structured documents (98.7% FinanceBench accuracy)
-- **Multi-stage Reranking**: Cross-encoder → ColBERT → LLM
-- **Multi-provider LLM Gateway**: OpenAI, Anthropic, Ollama with fallback and usage tracking
-- **Advanced Retrieval**: Query rewriting, HyDE, decomposition, reranking
-- **NER/RE Extraction**: Automatic entity and relation extraction
-- **ACL Support**: Role-based access control for documents
-- **Citation Tracking**: Automatic source attribution with page numbers
-- **Cache-Augmented Generation**: Semantic cache + CAG prewarm
+- **OpenAI-compatible API** - Drop-in replacement for OpenAI chat completions
+- **Hybrid Search** - Dense (BGE-M3) + Sparse (TF-IDF style) with RRF fusion
+- **GraphRAG** - Knowledge graph expansion using SurrealDB
+- **Multi-stage Reranking** - Cross-encoder → ColBERT → LLM (optional)
+- **Multi-provider LLM** - OpenAI, Anthropic, Ollama with fallback
+- **Query Rewriting** - Expansion, HyDE, decomposition
+- **Citation Tracking** - Automatic source attribution with page numbers
+- **Semantic Cache** - Cache responses by embedding similarity
+
+## Quick Start
+
+### 1. Clone and Configure
+
+```bash
+git clone https://github.com/javierpazo/perfect-rag.git
+cd perfect-rag
+
+cp .env.example .env
+# Edit .env with your API keys
+```
+
+### 2. Start Services
+
+```bash
+# Development (with persistent storage)
+docker compose --profile dev up -d
+
+# Production (see docker-compose.prod.yml)
+docker compose --profile prod up -d
+```
+
+### 3. Run API
+
+```bash
+# Local development
+pip install -e ".[dev]"
+uvicorn perfect_rag.main:app --reload
+```
+
+## API Usage
+
+### OpenAI-Compatible Chat
+
+```bash
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "What is machine learning?"}],
+    "stream": false
+  }'
+```
+
+### Upload Document
+
+```bash
+curl -X POST http://localhost:8000/v1/documents \
+  -F "file=@document.pdf" \
+  -F "title=My Document"
+```
+
+### Search
+
+```bash
+curl -X POST http://localhost:8000/v1/search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "machine learning algorithms",
+    "top_k": 10,
+    "use_reranking": true
+  }'
+```
 
 ## Architecture
 
@@ -48,129 +122,81 @@
 │  │  │  (BGE-M3) │ │  Gateway  │ │   (Rewrite/Rerank)    │ │ │
 │  │  └───────────┘ └───────────┘ └───────────────────────┘ │ │
 │  └─────────────────────────────────────────────────────────┘ │
-└──────────────────────────────┬──────────────────────────────┘
-                               │
-       ┌───────────────────────┼───────────────────────┐
-       │                       │                       │
-       ▼                       ▼                       ▼
-┌─────────────┐         ┌─────────────┐         ┌─────────────┐
-│  SurrealDB  │         │   Qdrant    │         │  Oxigraph   │
-│  (Docs/KG)  │         │  (Vectors)  │         │ (RDF/SPARQL)│
-└─────────────┘         └─────────────┘         └─────────────┘
+└──────────────────────┬───────────────────────────────────────┘
+                       │
+       ┌───────────────┼───────────────┐
+       ▼               ▼               ▼
+┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+│  SurrealDB  │ │   Qdrant    │ │  Oxigraph   │
+│  (Docs/KG)  │ │  (Vectors)  │ │ (RDF/SPARQL)│
+└─────────────┘ └─────────────┘ └─────────────┘
 ```
 
-## Quick Start
+## The Perfect RAG Recipe
 
-### 1. Clone and Configure
+### Retrieval Pipeline (7 steps)
+
+```
+query
+  ↓
+[1] Context Gate → Skip retrieval if not needed
+  ↓
+[2] Query Rewrite → Expansion + HyDE + Decomposition
+  ↓
+[3] Hybrid Search → Dense + Sparse with RRF fusion
+  ↓
+[4] GraphRAG → Expand by entities (optional)
+  ↓
+[5] Cross-encoder → Rerank with bge-reranker
+  ↓
+[6] ColBERT → Late interaction (optional)
+  ↓
+[7] LLM Rerank → Semantic reranking (optional)
+  ↓
+top_k chunks
+```
+
+### Secret Sauce
+
+| Technique | Impact | Why it works |
+|-----------|--------|--------------|
+| **Cross-encoder Reranking** | +24% top score | Semantic relevance scoring |
+| **Hybrid Search** | +recall | Combines semantic + keyword matching |
+| **GraphRAG** | +multi-hop | Entity-connected context |
+| **Context Gate** | -latency | Skips retrieval when not needed |
+| **Semantic Cache** | -cost | Reuses similar query responses |
+
+## Evaluation
+
+### Run Benchmarks
 
 ```bash
-git clone <repository>
-cd perfect-rag
+# Full benchmark suite
+python eval/run_all.py
 
-# Copy example configuration
-cp .env.example .env
-
-# Edit .env with your API keys
-nano .env
+# Specific benchmark
+python eval/benchmarks/retrieval_quality.py
+python eval/benchmarks/ablation_study.py
+python eval/benchmarks/latency_cost.py
 ```
 
-### 2. Start with Docker Compose
+### Ablation Studies
 
-```bash
-# Start all services
-docker compose up -d
+| Configuration | Top Score | Latency P50 |
+|--------------|-----------|-------------|
+| Full pipeline | 0.998 | 70ms |
+| - Cross-encoder | 0.805 | 20ms |
+| - GraphRAG | 0.998 | 72ms |
+| - Query rewrite | 0.998 | 68ms |
 
-# Check logs
-docker compose logs -f rag-api
-```
+See [eval/ablations/](eval/ablations/) for detailed results.
 
-### 3. Alternative: Local Development
+### Metrics Tracked
 
-```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # or venv\Scripts\activate on Windows
-
-# Install dependencies
-pip install -e ".[dev]"
-
-# Start databases (requires Docker)
-docker compose up -d surrealdb qdrant oxigraph
-
-# Run API
-uvicorn perfect_rag.main:app --reload
-```
-
-## API Usage
-
-### OpenAI-Compatible Chat
-
-```bash
-curl -X POST http://localhost:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-4o",
-    "messages": [
-      {"role": "user", "content": "What is machine learning?"}
-    ],
-    "stream": false
-  }'
-```
-
-### With Streaming
-
-```bash
-curl -X POST http://localhost:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-4o",
-    "messages": [
-      {"role": "user", "content": "Explain RAG systems"}
-    ],
-    "stream": true
-  }'
-```
-
-### Upload Document
-
-```bash
-# Upload file
-curl -X POST http://localhost:8000/v1/documents \
-  -F "file=@document.pdf" \
-  -F "title=My Document" \
-  -F "acl=admin,user" \
-  -F "tags=technical,ml"
-
-# Or ingest from URL
-curl -X POST http://localhost:8000/v1/documents \
-  -F "url=https://example.com/article.html" \
-  -F "title=Web Article"
-```
-
-### Direct Search
-
-```bash
-curl -X POST http://localhost:8000/v1/search \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "machine learning algorithms",
-    "top_k": 10,
-    "use_reranking": true,
-    "use_graph_expansion": true
-  }'
-```
-
-### List Models
-
-```bash
-curl http://localhost:8000/v1/models
-```
-
-### Health Check
-
-```bash
-curl http://localhost:8000/health
-```
+- **Retrieval Quality**: Top-k relevance scores, MRR, NDCG
+- **Latency**: P50, P95, P99 by pipeline stage
+- **Cost**: Tokens per query, $/1k queries
+- **Citation Quality**: Groundedness, attribution accuracy
 
 ## Configuration
 
@@ -180,201 +206,19 @@ curl http://localhost:8000/health
 |----------|-------------|---------|
 | `OPENAI_API_KEY` | OpenAI API key | - |
 | `ANTHROPIC_API_KEY` | Anthropic API key | - |
-| `DEFAULT_LLM_PROVIDER` | Default LLM provider | openai |
-| `DEFAULT_LLM_MODEL` | Default model | gpt-4o |
+| `DEFAULT_LLM_PROVIDER` | LLM provider | openai |
 | `EMBEDDING_MODEL` | Embedding model | BAAI/bge-m3 |
-| `SURREALDB_URL` | SurrealDB connection | ws://localhost:8080 |
+| `SURREALDB_URL` | SurrealDB connection | ws://localhost:8529 |
 | `QDRANT_URL` | Qdrant connection | http://localhost:6333 |
-| `OXIGRAPH_URL` | Oxigraph connection | http://localhost:7878 |
-| `CHUNK_SIZE` | Default chunk size | 512 |
-| `RETRIEVAL_TOP_K` | Default top-k results | 10 |
-| `MONTHLY_BUDGET_USD` | Monthly LLM budget | 100.0 |
 
-### RAG-specific Request Options
+### Optional Features
 
-The chat completions endpoint accepts additional parameters:
-
-```json
-{
-  "x_use_rag": true,        // Enable/disable RAG (default: true)
-  "x_rag_top_k": 10         // Number of chunks to retrieve
-}
-```
-
-Response includes additional fields:
-
-```json
-{
-  "citations": [            // Source citations
-    {
-      "source_id": "doc_123",
-      "source_title": "Document Title",
-      "text_snippet": "...",
-      "relevance_score": 0.95
-    }
-  ],
-  "confidence": 0.85,       // Answer confidence
-  "x_rag_metadata": {...}   // Retrieval metadata
-}
-```
-
-## The Perfect RAG Recipe
-
-### Ingredients
-
-```
-qdrant                    # Vector DB
-surrealdb                 # Graph DB + metadata
-sentence-transformers     # Embeddings
-BAAI/bge-m3              # Dense embeddings (1024d)
-splade                   # Sparse embeddings
-bge-reranker-v2-m3       # Cross-encoder reranker
-LLM API (openai/anthropic/ollama)
-```
-
-### Preparation
-
-#### 1. INGESTION
-
-```
-document → chunker(512 tokens, 50 overlap)
-        → embed_dense(bge-m3) + embed_sparse(splade)
-        → extract_entities(LLM) [optional]
-        → store in Qdrant + SurrealDB
-```
-
-#### 2. RETRIEVAL (8-step pipeline)
-
-```
-query
-  ↓
-[1] Context Gate → Does it need retrieval? If not, return empty
-  ↓
-[2] Query Rewrite → Expansion + HyDE + Decomposition
-  ↓
-[2.5] PageIndex → Tree-based search for structured docs [optional]
-  ↓
-[3] Hybrid Search → Dense + Sparse with RRF fusion, top_k=20
-  ↓
-[4] GraphRAG → Expand by entities, max_hops=2
-  ↓
-[5] Cross-encoder → Rerank with bge-reranker
-  ↓
-[6] ColBERT → Late interaction reranking [optional]
-  ↓
-[7] LLM Rerank → Semantic reranking [optional]
-  ↓
-top_k=5 chunks
-```
-
-#### 3. GENERATION
-
-```
-chunks + question
-  → prompt_builder(formatted context + citations [1][2])
-  → LLM.generate()
-  → response with citations
-```
-
-### Secret Sauce
-
-| Technique | Why it works |
-|-----------|--------------|
-| **Hybrid Search** | Combine dense (semantic) + sparse (keywords) with Reciprocal Rank Fusion |
-| **GraphRAG** | Chunks connected by entities improve multi-hop answers |
-| **Context Gate** | Avoids polluting MCQ prompts with irrelevant context |
-| **Quality Gate** | Only inject context if similarity > 0.35 for MCQs |
-| **CAG Cache** | Cache responses by embedding for repeated queries |
-| **Page Index** | Track page numbers for precise citation in documents |
-| **PageIndex (VectifyAI)** | Tree-based reasoning for structured docs (98.7% accuracy on FinanceBench) |
-
-### Page Index Enhancement
-
-For documents with page structure (PDFs, books), Perfect RAG can track page indices:
-
-```python
-# During ingestion
-chunk.metadata["page_number"] = pdf_page_number
-
-# During retrieval - results include page references
-{
-  "chunk_id": "abc123",
-  "content": "...",
-  "page_number": 42,  # Direct page reference
-  "doc_title": "Medical Guidelines"
-}
-```
-
-**Benefits:**
-- Precise citation: "According to page 42 of Medical Guidelines..."
-- UI integration: Jump-to-page functionality
-- Cross-page reasoning: Connect concepts across pages
-- Better user trust: Verifiable sources
-
-### PageIndex (VectifyAI) - Optional Enhancement
-
-For structured documents (guides, manuals, reports), Perfect RAG can use **PageIndex** - a reasoning-based retrieval approach that achieves **98.7% accuracy on FinanceBench**.
-
-#### How PageIndex Works
-
-Instead of vector similarity search, PageIndex:
-
-1. **Builds a tree** - Transforms documents into hierarchical TOC structures
-2. **LLM navigates** - Uses reasoning to find relevant sections
-3. **Returns page ranges** - Filters vector search to specific pages
-
-#### When to Use PageIndex
-
-- ✅ Structured documents (PDFs, guides, manuals)
-- ✅ Documents with 20+ pages
-- ✅ Questions requiring specific section location
-- ❌ Short unstructured documents
-- ❌ Pure semantic similarity queries
-
-#### Enable PageIndex
-
-```bash
-# In .env
-PAGEINDEX_ENABLED=true
-PAGEINDEX_MIN_PAGES=20
-PAGEINDEX_TREE_PATH=./pageindex_trees
-```
-
-#### PageIndex Configuration
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `PAGEINDEX_ENABLED` | false | Enable PageIndex tree-based retrieval |
-| `PAGEINDEX_TREE_PATH` | ./pageindex_trees | Where to store tree structures |
-| `PAGEINDEX_MIN_PAGES` | 20 | Minimum pages to use PageIndex |
-| `PAGEINDEX_MAX_TREE_DEPTH` | 5 | Maximum tree traversal depth |
-| `PAGEINDEX_LLM_MODEL` | gpt-4o-mini | LLM for tree navigation |
-
-## Architecture Details
-
-### Ingestion Pipeline
-
-1. **Document Loading**: PDF, DOCX, HTML, TXT, JSON, CSV support
-2. **Chunking**: Recursive, semantic, sentence, or paragraph-based
-3. **Embedding**: BGE-M3 for dense + sparse vectors
-4. **Entity Extraction**: spaCy NER + optional LLM extraction
-5. **Relation Extraction**: Pattern matching + LLM-based
-6. **Storage**: SurrealDB (docs/graph), Qdrant (vectors), Oxigraph (RDF)
-
-### Retrieval Pipeline
-
-1. **Context Gate**: Determine if retrieval is needed
-2. **Query Rewriting**: Expansion, HyDE, decomposition, multi-query
-3. **Hybrid Search**: Dense + sparse with RRF fusion
-4. **GraphRAG Expansion**: Knowledge graph traversal
-5. **Reranking**: Cross-encoder (bge-reranker-v2-m3)
-
-### Generation Pipeline
-
-1. **Prompt Construction**: Context injection with citations
-2. **LLM Generation**: Multi-provider with fallback
-3. **Citation Extraction**: Verify and format citations
-4. **Response Formatting**: Optional bibliography generation
+| Feature | Setting | Default |
+|---------|---------|---------|
+| ColBERT reranking | `COLBERT_ENABLED` | false |
+| LLM reranking | `LLM_RERANKER_ENABLED` | false |
+| GraphRAG | `GRAPH_MAX_HOPS` | 2 |
+| Semantic cache | `SEMANTIC_CACHE_ENABLED` | true |
 
 ## Project Structure
 
@@ -383,58 +227,50 @@ perfect-rag/
 ├── src/perfect_rag/
 │   ├── config.py              # Pydantic settings
 │   ├── main.py                # FastAPI application
-│   ├── models/                # Pydantic data models
-│   │   ├── document.py
-│   │   ├── chunk.py
-│   │   ├── entity.py
-│   │   ├── relation.py
-│   │   ├── query.py
-│   │   └── openai_types.py
+│   ├── models/                # Data models
 │   ├── db/                    # Database clients
-│   │   ├── surrealdb.py
-│   │   ├── qdrant.py
-│   │   └── oxigraph.py
 │   ├── llm/                   # LLM providers
-│   │   ├── providers.py
-│   │   └── gateway.py
-│   ├── core/                  # Core services
-│   │   └── embedding.py
-│   ├── ingestion/             # Ingestion pipeline
-│   │   ├── loaders.py
-│   │   ├── chunker.py
-│   │   ├── extractor.py
-│   │   └── pipeline.py
+│   ├── core/                  # Embedding, resilience
+│   ├── ingestion/             # Document processing
 │   ├── retrieval/             # Retrieval pipeline
-│   │   ├── query_rewriter.py
-│   │   ├── graphrag.py
-│   │   └── pipeline.py
-│   └── generation/            # Generation pipeline
-│       ├── prompt_builder.py
-│       ├── citation_extractor.py
-│       └── pipeline.py
-├── config/
-│   ├── surrealdb/init.surql   # Database schema
-│   └── oxigraph/ontology.ttl  # RDF ontology
-├── docker-compose.yml
-├── Dockerfile
-├── pyproject.toml
-└── README.md
+│   └── generation/            # Response generation
+├── eval/                      # Evaluation scripts & results
+│   ├── benchmarks/            # Benchmark scripts
+│   ├── ablations/             # Ablation studies
+│   └── results/               # Benchmark results
+├── docker-compose.yml         # Development setup
+├── docker-compose.prod.yml    # Production setup
+└── pyproject.toml
 ```
+
+## Production Deployment
+
+### Requirements
+
+- Persistent volumes for SurrealDB and Qdrant
+- Rate limiting (Redis-based for distributed)
+- Health checks and metrics endpoint
+- Proper secrets management
+
+### Docker Compose Production
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+```
+
+See [docs/deployment.md](docs/deployment.md) for detailed production setup.
 
 ## Development
 
-### Running Tests
-
 ```bash
+# Install dev dependencies
+pip install -e ".[dev]"
+
+# Run tests
 pytest tests/ -v
-```
 
-### Code Formatting
-
-```bash
-black src/
-ruff check src/ --fix
-mypy src/
+# Format code
+black src/ && ruff check src/ --fix
 ```
 
 ## License
@@ -443,10 +279,12 @@ MIT License
 
 ## Author
 
-**Javier Pazó** - AEEH (Asociación Española para el Estudio del Hígado)
+**Javier Pazó** - AEEH (Spanish Association for the Study of the Liver)
 
 ---
 
 ## Acknowledgments
 
-Developed for medical knowledge management applications.
+- BGE-M3 embeddings by BAAI
+- GraphRAG concepts from Microsoft Research
+- PageIndex concept from VectifyAI (98.7% FinanceBench accuracy - their benchmark, not ours)
