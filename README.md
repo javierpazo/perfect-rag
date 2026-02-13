@@ -23,19 +23,28 @@
 
 | Feature | Perfect RAG | Typical RAG |
 |---------|-------------|-------------|
-| **Retrieval** | Hybrid (Dense + Sparse + RRF) | Dense only |
+| **Retrieval** | Hybrid (Dense + BM25 + RRF) | Dense only |
+| **Sparse** | BM25 with phrase/proximity queries | TF-IDF or none |
 | **Graph** | GraphRAG with entity expansion | None |
 | **Reranking** | 3-stage (Cross-encoder + ColBERT + LLM) | Single reranker or none |
+| **Multi-query** | RAG-Fusion with intent routing | Single query |
+| **Generation** | Evidence-first (2-step) | Direct generation |
+| **Diversity** | MMR for context diversification | None |
 | **Citations** | Page-level with verification | Chunk-level or none |
 | **Cache** | CAG + Semantic cache | None |
+| **Fallback** | Confidence-based automatic fallback | None |
 | **Query Smart** | Context gate + rewriting | Direct search |
 
 ## Features
 
 - **OpenAI-compatible API** - Drop-in replacement for OpenAI chat completions
-- **Hybrid Search** - Dense (BGE-M3) + Sparse (TF-IDF style) with RRF fusion
+- **Hybrid Search** - Dense (BGE-M3) + BM25 with phrase/proximity queries + RRF fusion
 - **GraphRAG** - Knowledge graph expansion using SurrealDB
 - **Multi-stage Reranking** - Cross-encoder → ColBERT → LLM (optional)
+- **RAG-Fusion** - Multi-query retrieval with intent routing
+- **Evidence-First Generation** - 2-step generation to reduce hallucinations
+- **MMR Diversification** - Maximal Marginal Relevance for diverse context
+- **Confidence Estimation** - Automatic fallback on low confidence
 - **Multi-provider LLM** - OpenAI, Anthropic, Ollama with fallback
 - **Query Rewriting** - Expansion, HyDE, decomposition
 - **Citation Tracking** - Automatic source attribution with page numbers
@@ -135,7 +144,7 @@ curl -X POST http://localhost:8000/v1/search \
 
 ## The Perfect RAG Recipe
 
-### Retrieval Pipeline (7 steps)
+### Retrieval Pipeline (10 steps)
 
 ```
 query
@@ -144,7 +153,9 @@ query
   ↓
 [2] Query Rewrite → Expansion + HyDE + Decomposition
   ↓
-[3] Hybrid Search → Dense + Sparse with RRF fusion
+[2.5] RAG-Fusion → Multi-query with intent routing (optional)
+  ↓
+[3] Hybrid Search → Dense + BM25 with phrase/proximity + RRF fusion
   ↓
 [4] GraphRAG → Expand by entities (optional)
   ↓
@@ -154,7 +165,13 @@ query
   ↓
 [7] LLM Rerank → Semantic reranking (optional)
   ↓
-top_k chunks
+[8] MMR Diversification → Reduce redundancy in context
+  ↓
+[9] Confidence Estimation → Score result quality
+  ↓
+[10] Evidence-First Generation → 2-step answer generation
+  ↓
+answer with citations
 ```
 
 ### Secret Sauce
@@ -162,7 +179,11 @@ top_k chunks
 | Technique | Impact | Why it works |
 |-----------|--------|--------------|
 | **Cross-encoder Reranking** | +24% top score | Semantic relevance scoring |
-| **Hybrid Search** | +recall | Combines semantic + keyword matching |
+| **BM25 with Phrases** | +precision | Exact phrase matching, proximity queries |
+| **RAG-Fusion** | +recall | Multiple query angles, RRF fusion |
+| **Evidence-First Gen** | -hallucinations | LLM only uses verified evidence |
+| **MMR Diversification** | +coverage | Diverse context, less redundancy |
+| **Confidence Fallback** | +reliability | Auto-retry on low confidence |
 | **GraphRAG** | +multi-hop | Entity-connected context |
 | **Context Gate** | -latency | Skips retrieval when not needed |
 | **Semantic Cache** | -cost | Reuses similar query responses |
@@ -229,7 +250,21 @@ See [eval/ablations/](eval/ablations/) for detailed results.
 | ColBERT reranking | `COLBERT_ENABLED` | false |
 | LLM reranking | `LLM_RERANKER_ENABLED` | false |
 | GraphRAG | `GRAPH_MAX_HOPS` | 2 |
+| RAG-Fusion | `RAG_FUSION_ENABLED` | false |
+| MMR diversification | `MMR_ENABLED` | true |
+| Evidence-first generation | `EVIDENCE_FIRST_ENABLED` | false |
+| Confidence fallback | `CONFIDENCE_FALLBACK_ENABLED` | true |
 | Semantic cache | `SEMANTIC_CACHE_ENABLED` | true |
+
+### New Retrieval Modules
+
+| Module | Description | File |
+|--------|-------------|------|
+| **BM25 Index** | Real BM25 with phrase/proximity queries | `retrieval/sparse_bm25.py` |
+| **RAG-Fusion** | Multi-query with intent routing | `retrieval/rag_fusion.py` |
+| **MMR** | Maximal Marginal Relevance diversification | `retrieval/mmr.py` |
+| **Confidence** | Estimation + automatic fallback | `retrieval/confidence.py` |
+| **Evidence-First** | 2-step generation (extract evidence → answer) | `generation/evidence_first.py` |
 
 ## Project Structure
 
